@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { ArrowRight, Plus, Pencil, Trash2, LogOut } from "lucide-react";
+import { ArrowRight, Plus, Pencil, Trash2, LogOut, Search, Upload, ImageIcon, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CATEGORIES } from "@/lib/categories";
@@ -54,6 +54,11 @@ const Admin = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   
+  // Two-step add product states
+  const [addStep, setAddStep] = useState<1 | 2>(1);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
+  const [isUploading, setIsUploading] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -62,6 +67,21 @@ const Admin = () => {
     category: "",
     in_stock: true,
   });
+
+  const [whatsappNumber, setWhatsappNumber] = useState(() => {
+    return localStorage.getItem("whatsapp_number") || "967773226263";
+  });
+  const [adminSearchQuery, setAdminSearchQuery] = useState("");
+
+  const handleSaveWhatsapp = () => {
+    if (!whatsappNumber.trim()) {
+      toast.error("يرجى إدخال رقم الواتساب");
+      return;
+    }
+    localStorage.setItem("whatsapp_number", whatsappNumber.trim());
+    toast.success("تم حفظ رقم الواتساب بنجاح");
+  };
+
 
   // Check authentication and admin status
   useEffect(() => {
@@ -131,6 +151,11 @@ const Admin = () => {
       return data as Product[];
     },
     enabled: isAdmin,
+  });
+
+  const filteredAdminProducts = products?.filter((product) => {
+    if (!adminSearchQuery) return true;
+    return product.name.toLowerCase().includes(adminSearchQuery.toLowerCase());
   });
 
   const addMutation = useMutation({
@@ -289,6 +314,47 @@ const Admin = () => {
       in_stock: true,
     });
     setEditingProduct(null);
+    setAddStep(1);
+    setUploadedImageUrl("");
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error("يرجى اختيار ملف صورة صالح");
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = fileName;
+
+      const { error: uploadError } = await supabase.storage
+        .from('mira-img')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('mira-img')
+        .getPublicUrl(filePath);
+
+      setUploadedImageUrl(publicUrl);
+      setAddStep(2);
+      toast.success("تم رفع الصورة بنجاح");
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast.error("حدث خطأ أثناء رفع الصورة: " + (error.message || "خطأ غير معروف"));
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleEdit = (product: Product) => {
@@ -322,7 +388,8 @@ const Admin = () => {
     if (editingProduct) {
       updateMutation.mutate({ id: editingProduct.id, data: formData });
     } else {
-      addMutation.mutate(formData);
+      // Use uploaded image URL for new products
+      addMutation.mutate({ ...formData, image_url: uploadedImageUrl });
     }
   };
 
@@ -491,8 +558,47 @@ const Admin = () => {
       </header>
 
       <main className="container py-8">
-        <div className="flex justify-between items-center mb-6">
+        {/* إعدادات الواتساب */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>إعدادات الواتساب</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
+              <div className="flex-1 w-full">
+                <Label htmlFor="whatsappNumber">رقم الواتساب لاستقبال الطلبات</Label>
+                <Input
+                  id="whatsappNumber"
+                  type="tel"
+                  value={whatsappNumber}
+                  onChange={(e) => setWhatsappNumber(e.target.value)}
+                  placeholder="مثال: 967773226263"
+                  className="text-left"
+                  dir="ltr"
+                />
+                <p className="text-sm text-muted-foreground mt-1">
+                  أدخل الرقم بالصيغة الدولية بدون علامة + (مثال: 967773226263)
+                </p>
+              </div>
+              <Button onClick={handleSaveWhatsapp} className="gradient-primary text-white">
+                حفظ الرقم
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <h2 className="text-3xl font-bold">إدارة المنتجات</h2>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="ابحث عن منتج..."
+              value={adminSearchQuery}
+              onChange={(e) => setAdminSearchQuery(e.target.value)}
+              className="pr-10 text-right"
+            />
+          </div>
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) resetForm();
@@ -506,114 +612,263 @@ const Admin = () => {
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
-                  {editingProduct ? "تعديل المنتج" : "إضافة منتج جديد"}
+                  {editingProduct ? "تعديل المنتج" : addStep === 1 ? "الخطوة 1: رفع صورة المنتج" : "الخطوة 2: بيانات المنتج"}
                 </DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="name">اسم المنتج *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="أدخل اسم المنتج"
-                    className="text-right"
-                    required
-                    maxLength={200}
-                  />
+              
+              {/* Step 1: Image Upload (only for new products) */}
+              {!editingProduct && addStep === 1 && (
+                <div className="space-y-6 py-4">
+                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 hover:border-primary/50 transition-colors">
+                    {isUploading ? (
+                      <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                        <p className="text-muted-foreground">جاري رفع الصورة...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <ImageIcon className="h-16 w-16 text-muted-foreground/50 mb-4" />
+                        <p className="text-lg font-medium mb-2">اختر صورة المنتج</p>
+                        <p className="text-sm text-muted-foreground mb-4">يجب رفع صورة قبل إضافة بيانات المنتج</p>
+                        <label className="cursor-pointer">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageUpload}
+                            className="hidden"
+                          />
+                          <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors">
+                            <Upload className="h-4 w-4" />
+                            <span>اختر صورة</span>
+                          </div>
+                        </label>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsDialogOpen(false);
+                        resetForm();
+                      }}
+                    >
+                      إلغاء
+                    </Button>
+                  </div>
                 </div>
+              )}
 
-                <div>
-                  <Label htmlFor="description">الوصف</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="أدخل وصف المنتج"
-                    className="text-right min-h-[100px]"
-                    maxLength={2000}
-                  />
-                </div>
+              {/* Step 2: Product Form (for new products after image upload) */}
+              {!editingProduct && addStep === 2 && (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  {/* Show uploaded image preview */}
+                  <div className="flex justify-center mb-4">
+                    <div className="relative w-32 h-32 rounded-lg overflow-hidden border">
+                      <img
+                        src={uploadedImageUrl}
+                        alt="صورة المنتج"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="name">اسم المنتج *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="أدخل اسم المنتج"
+                      className="text-right"
+                      required
+                      maxLength={200}
+                    />
+                  </div>
 
-                <div>
-                  <Label htmlFor="price">السعر (بالريال) *</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max="999999"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    placeholder="0.00"
-                    className="text-right"
-                    required
-                  />
-                </div>
+                  <div>
+                    <Label htmlFor="description">الوصف</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="أدخل وصف المنتج"
+                      className="text-right min-h-[100px]"
+                      maxLength={2000}
+                    />
+                  </div>
 
-                <div>
-                  <Label htmlFor="category">التصنيف</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
-                  >
-                    <SelectTrigger className="text-right">
-                      <SelectValue placeholder="اختر التصنيف" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORIES.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <div>
+                    <Label htmlFor="price">السعر (بالريال) *</Label>
+                    <Input
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="999999"
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                      placeholder="0.00"
+                      className="text-right"
+                      required
+                    />
+                  </div>
 
-                <div>
-                  <Label htmlFor="image_url">رابط الصورة</Label>
-                  <Input
-                    id="image_url"
-                    type="url"
-                    value={formData.image_url}
-                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                    placeholder="https://example.com/image.jpg"
-                    className="text-right"
-                    maxLength={500}
-                  />
-                </div>
+                  <div>
+                    <Label htmlFor="category">التصنيف</Label>
+                    <Select
+                      value={formData.category}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    >
+                      <SelectTrigger className="text-right">
+                        <SelectValue placeholder="اختر التصنيف" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="in_stock"
-                    checked={formData.in_stock}
-                    onCheckedChange={(checked) => setFormData({ ...formData, in_stock: checked })}
-                  />
-                  <Label htmlFor="in_stock">متوفر في المخزون</Label>
-                </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="in_stock"
+                      checked={formData.in_stock}
+                      onCheckedChange={(checked) => setFormData({ ...formData, in_stock: checked })}
+                    />
+                    <Label htmlFor="in_stock">متوفر في المخزون</Label>
+                  </div>
 
-                <div className="flex gap-2 pt-4">
-                  <Button type="submit" className="flex-1 gradient-primary text-white">
-                    {editingProduct ? "تحديث المنتج" : "إضافة المنتج"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setIsDialogOpen(false);
-                      resetForm();
-                    }}
-                  >
-                    إلغاء
-                  </Button>
-                </div>
-              </form>
+                  <div className="flex gap-2 pt-4">
+                    <Button type="submit" className="flex-1 gradient-primary text-white">
+                      حفظ المنتج
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsDialogOpen(false);
+                        resetForm();
+                      }}
+                    >
+                      إلغاء
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {/* Edit Product Form (shows all fields including image URL) */}
+              {editingProduct && (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                    <Label htmlFor="name">اسم المنتج *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="أدخل اسم المنتج"
+                      className="text-right"
+                      required
+                      maxLength={200}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">الوصف</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="أدخل وصف المنتج"
+                      className="text-right min-h-[100px]"
+                      maxLength={2000}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="price">السعر (بالريال) *</Label>
+                    <Input
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="999999"
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                      placeholder="0.00"
+                      className="text-right"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="category">التصنيف</Label>
+                    <Select
+                      value={formData.category}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    >
+                      <SelectTrigger className="text-right">
+                        <SelectValue placeholder="اختر التصنيف" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="image_url">رابط الصورة</Label>
+                    <Input
+                      id="image_url"
+                      type="url"
+                      value={formData.image_url}
+                      onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                      placeholder="https://example.com/image.jpg"
+                      className="text-right"
+                      maxLength={500}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="in_stock"
+                      checked={formData.in_stock}
+                      onCheckedChange={(checked) => setFormData({ ...formData, in_stock: checked })}
+                    />
+                    <Label htmlFor="in_stock">متوفر في المخزون</Label>
+                  </div>
+
+                  <div className="flex gap-2 pt-4">
+                    <Button type="submit" className="flex-1 gradient-primary text-white">
+                      تحديث المنتج
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsDialogOpen(false);
+                        resetForm();
+                      }}
+                    >
+                      إلغاء
+                    </Button>
+                  </div>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products?.map((product) => (
+          {filteredAdminProducts?.map((product) => (
             <Card key={product.id} className="overflow-hidden">
               <div className="aspect-square overflow-hidden bg-muted">
                 {product.image_url ? (

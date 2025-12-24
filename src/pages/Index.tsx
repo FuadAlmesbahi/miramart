@@ -8,6 +8,8 @@ import Cart from "@/components/Cart";
 import { useNavigate } from "react-router-dom";
 import { CATEGORIES } from "@/lib/categories";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 import heroBanner from "@/assets/hero-banner.png";
 
 interface Product {
@@ -33,6 +35,7 @@ const Index = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("الكل");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: products, isLoading } = useQuery({
     queryKey: ["products"],
@@ -71,7 +74,7 @@ const Index = () => {
   const handleCheckout = () => {
     if (cartItems.length === 0) return;
 
-    const whatsappNumber = "967773226263";
+    const whatsappNumber = localStorage.getItem("whatsapp_number") || "967773226263";
     const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     
     let message = "مرحباً، أود طلب المنتجات التالية:\n\n";
@@ -89,8 +92,9 @@ const Index = () => {
   const cartItemsCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const filteredProducts = products?.filter((product) => {
-    if (selectedCategory === "الكل") return true;
-    return product.category === selectedCategory;
+    const matchesCategory = selectedCategory === "الكل" || product.category === selectedCategory;
+    const matchesSearch = !searchQuery || product.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
   });
 
   return (
@@ -120,7 +124,17 @@ const Index = () => {
           </p>
         </div>
 
-        <div className="mb-6">
+        <div className="mb-6 space-y-4">
+          <div className="relative max-w-md mx-auto">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="ابحث عن منتج..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-10 text-right"
+            />
+          </div>
           <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
             <TabsList className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-2 h-auto p-2">
               <TabsTrigger value="الكل" className="whitespace-nowrap w-full">
